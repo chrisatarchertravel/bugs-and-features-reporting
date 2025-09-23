@@ -1,8 +1,6 @@
 // app/api/report/route.js
 export async function POST(req) {
-
     try {
-
         const jiraSite = process.env.JIRA_SITE;
         const jiraEmail = process.env.JIRA_EMAIL;
         const jiraToken = process.env.JIRA_API_TOKEN;
@@ -80,15 +78,39 @@ export async function POST(req) {
 
         // 🔹 create Jira issue
         if (jiraSite && jiraEmail && jiraToken && jiraProjectKey) {
-            const authHeader = 'Basic ' + Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+            const authHeader =
+                'Basic ' +
+                Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+
+            // Create a plain text version of the description
+            const descriptionText = result.pretty
+                .map(p => `${p.key}: ${p.value}`)
+                .join('\n');
+
+            // Wrap it in Atlassian Document Format
+            const descriptionADF = {
+                type: 'doc',
+                version: 1,
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            {
+                                type: 'text',
+                                text: descriptionText,
+                            },
+                        ],
+                    },
+                ],
+            };
 
             const issueBody = {
                 fields: {
                     project: { key: jiraProjectKey },
-                    summary: `${result.formTitle}: ${result.pretty[0]?.value || 'New Request'}`,
-                    description: result.pretty
-                        .map(p => `${p.key}: ${p.value}`)
-                        .join('\n'),
+                    summary: `${result.formTitle}: ${
+                        result.pretty[0]?.value || 'New Request'
+                    }`,
+                    description: descriptionADF,
                     issuetype: { name: 'Task' }, // or 'Bug', 'Story', etc.
                 },
             };
@@ -96,21 +118,26 @@ export async function POST(req) {
             const jiraRes = await fetch(`${jiraSite}/rest/api/3/issue`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': authHeader,
-                    'Accept': 'application/json',
+                    Authorization: authHeader,
+                    Accept: 'application/json',
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(issueBody),
             });
 
             if (!jiraRes.ok) {
-                console.error('Jira issue creation failed:', await jiraRes.text());
+                console.error(
+                    'Jira issue creation failed:',
+                    await jiraRes.text()
+                );
             } else {
                 const issueData = await jiraRes.json();
                 console.log('Jira issue created:', issueData.key);
             }
         } else {
-            console.warn('Missing Jira environment variables; skipping ticket creation');
+            console.warn(
+                'Missing Jira environment variables; skipping ticket creation'
+            );
         }
 
         return new Response(JSON.stringify({ ok: true, ...result }), {
@@ -123,7 +150,7 @@ export async function POST(req) {
         return new Response(
             JSON.stringify({
                 ok: false,
-                error: 'Could not parse form data or send to Slack',
+                error: 'Could not parse form data or send to Slack/Jira',
             }),
             {
                 status: 400,
