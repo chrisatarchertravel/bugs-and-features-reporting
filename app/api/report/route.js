@@ -58,26 +58,112 @@ export async function POST(req) {
       }
     }
 
-    // 🔹 Scan all form data values for URLs containing https://
-    const urlRegex = /https:\\?\/\\?\/[^\s"']+/gi; // matches https://... or https:\/\...
-    let urlMatches = [];
+    // -------------------------
+    // URL extraction & normalization
+    // -------------------------
+    const urlRegex = /https?:\/\/[^\s"']+/gi;
 
-    for (const [key, val] of Object.entries(allData)) {
-      if (typeof val === 'string') {
-        const matches = val.match(urlRegex);
-        if (matches) {
-          urlMatches.push(...matches);
+    // Recursively extract URLs from objects/arrays/strings
+    function extractUrlsFromObject(obj) {
+      const out = [];
+
+      if (obj == null) return out;
+
+      if (typeof obj === 'string') {
+        out.push(...extractUrlsFromStringOrJson(obj));
+        return out;
+      }
+
+      if (Array.isArray(obj)) {
+        for (const item of obj) {
+          out.push(...extractUrlsFromObject(item));
+        }
+        return out;
+      }
+
+      if (typeof obj === 'object') {
+        for (const k of Object.keys(obj)) {
+          out.push(...extractUrlsFromObject(obj[k]));
+        }
+        return out;
+      }
+
+      return out;
+    }
+
+    function extractUrlsFromStringOrJson(s) {
+      if (typeof s !== 'string') return [];
+
+      const trimmed = s.trim();
+
+      // If it looks like JSON (object/array), try to parse and recurse.
+      if ((trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        try {
+          const parsed = JSON.parse(s);
+          return extractUrlsFromObject(parsed);
+        } catch (err) {
+          // Not valid JSON — fall back to string extraction below
         }
       }
+
+      // Unescape common JSON-escaped slashes and quotes (e.g. "https:\/\/...") so regex sees the real URL
+      const unescaped = s.replace(/\\\//g, '/').replace(/\\"/g, '"').replace(/\\n/g, '\n');
+
+      const matches = unescaped.match(urlRegex);
+      return matches ? matches.map(m => m) : [];
     }
 
-    if (urlMatches.length > 0) {
-      urlMatches.forEach((u, idx) => {
-        prettyArray.push({ key: `URL ${idx + 1}`, value: u });
-      });
+    // collect raw matches from every allData value
+    let rawMatches = [];
+    for (const val of Object.values(allData)) {
+      rawMatches.push(...extractUrlsFromObject(val));
     }
 
-    // Build the combined object
+    // normalize & dedupe matches
+    const normalizedSet = new Set(
+      rawMatches
+        .map(u => {
+          if (!u) return u;
+          let nu = u.replace(/\\\//g, '/'); // just in case any escaped slashes remain
+
+          // Normalize JotForm uploads -> files.jotform.com/jufs
+          // e.g. https://www.jotform.com/uploads/...  -> https://files.jotform.com/jufs/...
+          nu = nu.replace(
+            /^https?:\/\/(?:www\.)?jotform\.com\/uploads/i,
+            'https://files.jotform.com/jufs'
+          );
+
+          // trim trailing quotes or punctuation sometimes captured
+          nu = nu.replace(/["'<>]+$/g, '');
+
+          return nu;
+        })
+        .filter(Boolean)
+    );
+
+    const normalizedUrls = Array.from(normalizedSet);
+
+    // Filter to file-like URLs — prefer attachments (images, pdfs) or jufs paths.
+    const fileLikeUrls = normalizedUrls.filter(u =>
+      /\.(png|jpe?g|gif|bmp|pdf|zip|txt|csv|docx?|xlsx?|webp)(\?.*)?$/i.test(u) ||
+      /\/jufs\//i.test(u) ||
+      /\/uploads\//i.test(u)
+    );
+
+    // If we found file-like URLs, prefer those. Otherwise, fall back to any https URLs found.
+    const finalUrls = fileLikeUrls.length > 0 ? fileLikeUrls : normalizedUrls;
+
+    // append to prettyArray as attachments
+    finalUrls.forEach((u, idx) => {
+      prettyArray.push({ key: `Attachment ${idx + 1}`, value: u });
+    });
+
+    console.log('Detected URLs:', normalizedUrls);
+    console.log('File-like URLs (used as attachments):', finalUrls);
+
+    // -------------------------
+    // Build result and continue with Slack/Jira logic
+    // -------------------------
     const result = {
       formTitle: formTitle ?? '',
       pretty: prettyArray,
@@ -139,11 +225,9 @@ export async function POST(req) {
       const issueBody = {
         fields: {
           project: { key: jiraProjectKey },
-          summary: `${result.formTitle}: ${
-            result.pretty[0]?.value || 'New Request'
-          }`,
+          summary: `${result.formTitle}: ${result.pretty[0]?.value || 'New Request'}`,
           description: descriptionADF,
-          issuetype: { name: 'Task' }, // or 'Bug', 'Story', etc.
+          issuetype: { name: 'Task' },
         },
       };
 
@@ -158,18 +242,13 @@ export async function POST(req) {
       });
 
       if (!jiraRes.ok) {
-        console.error(
-          'Jira issue creation failed:',
-          await jiraRes.text()
-        );
+        console.error('Jira issue creation failed:', await jiraRes.text());
       } else {
         const issueData = await jiraRes.json();
         console.log('Jira issue created:', issueData.key);
       }
     } else {
-      console.warn(
-        'Missing Jira environment variables; skipping ticket creation'
-      );
+      console.warn('Missing Jira environment variables; skipping ticket creation');
     }
 
     return new Response(JSON.stringify({ ok: true, ...result }), {
