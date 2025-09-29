@@ -176,12 +176,12 @@ export async function POST(req) {
 
     console.log('Parsed form data:', result);
 
-    // 🔹 send to Slack (mrkdwn does NOT support underline; using italics)
+    // 🔹 send to Slack — NO italics around answers so URLs autolink correctly
     const webhookUrl = process.env.SLACK_WEBHOOK_URL;
     if (webhookUrl) {
       const textLines = [
         `*${result.formTitle}*`,
-        ...result.pretty.map(p => `• *${p.key}*: _${p.value || ''}_`),
+        ...result.pretty.map(p => `• *${p.key}*: ${p.value || ''}`),
       ];
       const slackMessage = { text: textLines.join('\n') };
 
@@ -203,7 +203,6 @@ export async function POST(req) {
       const authHeader =
         'Basic ' + Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
 
-      // Build ADF where values are underlined
       const descriptionADF = {
         type: 'doc',
         version: 1,
