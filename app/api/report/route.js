@@ -8,6 +8,20 @@ export async function POST(req) {
 
         const formData = await req.formData();
 
+        // console log all data in formData
+        // Option 2: convert to a plain object for easy inspection:
+        const allData = {};
+        for (const [key, value] of formData.entries()) {
+            if (typeof value === 'string') {
+                allData[key] = value;
+            } else if (typeof value?.text === 'function') {
+                allData[key] = await value.text();
+            } else {
+                allData[key] = value;
+            }
+        }
+        console.log('All form data from webhook:', allData);
+
         // Grab formTitle (works for 'formTitle' or 'FormTitle')
         const formTitle = formData.get('formTitle') ?? formData.get('FormTitle');
 
@@ -107,9 +121,8 @@ export async function POST(req) {
             const issueBody = {
                 fields: {
                     project: { key: jiraProjectKey },
-                    summary: `${result.formTitle}: ${
-                        result.pretty[0]?.value || 'New Request'
-                    }`,
+                    summary: `${result.formTitle}: ${result.pretty[0]?.value || 'New Request'
+                        }`,
                     description: descriptionADF,
                     issuetype: { name: 'Task' }, // or 'Bug', 'Story', etc.
                 },
