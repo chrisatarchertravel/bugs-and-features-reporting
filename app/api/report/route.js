@@ -43,18 +43,15 @@ export async function POST(req) {
       // --- Improved normalization & parsing for Jotform "pretty" string ---
       raw = raw
         .trim()
-        .replace(/^\s*pretty[:\s-]*/i, '') // remove accidental leading "pretty"
-        .replace(/\\\//g, '/')            // unescape \/ -> /
-        .replace(/\\"/g, '"')             // unescape \"
-        .replace(/\\n/g, '\n');           // unescape \n
+        .replace(/^\s*pretty[:\s-]*/i, '')
+        .replace(/\\\//g, '/')
+        .replace(/\\"/g, '"')
+        .replace(/\\n/g, '\n');
 
       function splitOnLabelBoundaries(s) {
-        // If it already has one-per-line, respect lines
         if (/\r?\n/.test(s)) {
           return s.split(/\r?\n/).map(t => t.trim()).filter(Boolean);
         }
-        // Otherwise, split only where a *new label* starts:
-        // pattern: ", " followed by Capitalized text that eventually has a colon.
         const marked = s.replace(/,\s+(?=[A-Z][^:]{0,200}:)/g, '|||');
         return marked.split('|||').map(t => t.trim()).filter(Boolean);
       }
@@ -62,7 +59,6 @@ export async function POST(req) {
       const parts = splitOnLabelBoundaries(raw);
 
       for (const part of parts) {
-        // Use the LAST colon so labels may contain colons safely
         const lastColon = part.lastIndexOf(':');
         if (lastColon === -1) {
           if (part) prettyArray.push({ key: part.trim(), value: '' });
@@ -110,17 +106,13 @@ export async function POST(req) {
       if (typeof s !== 'string') return [];
       const trimmed = s.trim();
 
-      // If it looks like JSON (object/array), try to parse and recurse.
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
           const parsed = JSON.parse(s);
           return extractUrlsFromObject(parsed);
-        } catch {
-          // fall through to plain string extraction
-        }
+        } catch {}
       }
 
-      // Unescape common JSON-escaped slashes/quotes so regex sees real URLs
       const unescaped = s
         .replace(/\\\//g, '/')
         .replace(/\\"/g, '"')
@@ -141,7 +133,7 @@ export async function POST(req) {
       rawMatches
         .map(u => {
           if (!u) return u;
-          let nu = u.replace(/\\\//g, '/'); // just in case any escaped slashes remain
+          let nu = u.replace(/\\\//g, '/');
 
           // Normalize JotForm uploads -> files.jotform.com/jufs
           nu = nu.replace(
@@ -149,9 +141,7 @@ export async function POST(req) {
             'https://files.jotform.com/jufs'
           );
 
-          // trim trailing quotes or punctuation sometimes captured
           nu = nu.replace(/["'<>]+$/g, '');
-
           return nu;
         })
         .filter(Boolean)
@@ -186,12 +176,12 @@ export async function POST(req) {
 
     console.log('Parsed form data:', result);
 
-    // 🔹 send to Slack
+    // 🔹 send to Slack (mrkdwn does NOT support underline; using italics)
     const webhookUrl = process.env.SLACK_WEBHOOK_URL;
     if (webhookUrl) {
       const textLines = [
         `*${result.formTitle}*`,
-        ...result.pretty.map(p => `• *${p.key}*: ${p.value}`),
+        ...result.pretty.map(p => `• *${p.key}*: _${p.value || ''}_`),
       ];
       const slackMessage = { text: textLines.join('\n') };
 
@@ -208,24 +198,26 @@ export async function POST(req) {
       console.warn('No SLACK_WEBHOOK_URL environment variable set.');
     }
 
-    // 🔹 create Jira issue
+    // 🔹 create Jira issue (answers underlined in ADF)
     if (jiraSite && jiraEmail && jiraToken && jiraProjectKey) {
       const authHeader =
         'Basic ' + Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
 
-      const descriptionText = result.pretty
-        .map(p => `${p.key}: ${p.value}`)
-        .join('\n');
-
+      // Build ADF where values are underlined
       const descriptionADF = {
         type: 'doc',
         version: 1,
-        content: [
-          {
-            type: 'paragraph',
-            content: [{ type: 'text', text: descriptionText }],
-          },
-        ],
+        content: result.pretty.length
+          ? result.pretty.map(p => ({
+              type: 'paragraph',
+              content: [
+                { type: 'text', text: `${p.key}: ` },
+                ...(p.value
+                  ? [{ type: 'text', text: p.value, marks: [{ type: 'underline' }] }]
+                  : []),
+              ],
+            }))
+          : [{ type: 'paragraph', content: [{ type: 'text', text: '' }] }],
       };
 
       const issueBody = {
