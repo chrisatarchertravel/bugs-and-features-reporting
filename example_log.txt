@@ -1,0 +1,88 @@
+2025-09-29T22:10:54.754Z [info] All form data from webhook: {
+  action: '',
+  webhookURL: 'https://bugs-and-features-reporting.vercel.app/api/report',
+  username: 'ArcherTravelGroup',
+  formID: '250564877148064',
+  type: 'WEB',
+  customParams: '',
+  product: '',
+  formTitle: 'Feedback: Commisson Tracking Form',
+  customTitle: '',
+  submissionID: '6349930529717389691',
+  event: '',
+  documentID: '',
+  teamID: '',
+  subject: '',
+  isSilent: '',
+  customBody: '',
+  rawRequest: '{"slug":"submit\\/250564877148064","jsExecutionTracker":"build-date-1759166572731=>init-started:1759183273396=>validator-called:1759183273404=>validator-mounted-false:1759183273404=>init-complete:1759183273408=>interval-complete:1759183294409=>onsubmit-fired:1759183852760=>observerSubmitHandler_received-submit-event:1759183852760=>submit-validation-passed:1759183852770=>observerSubmitHandler_validation-passed-submitting-form:1759183852774","submitSource":"form","submitDate":"1759183852774","buildDate":"1759166572731","uploadServerUrl":"https:\\/\\/upload.jotform.com\\/upload","eventObserver":"1","q23_yourName":{"first":"test","last":"test"},"q24_yourEmail":"test@test.com","q5_isThis":"Bug","q6_pleaseProvide":"test","q13_pleaseCopy":"test","q16_pleaseRate":"No big deal, would be nice to have","q19_pleaseProvide19":"test","formOpenId_V5":"14302650792153573009","timeToSubmit":"20","preview":"true","temp_upload":{"q21_ifYou":["test.png#jotformfs-bc35e2a4de105#01999787-5139-7a7e-a995-d39d721c8c4a"]},"file_server":"jotformfs-bc35e2a4de105#01999787-5139-7a7e-a995-d39d721c8c4a","validatedNewRequiredFieldIDs":"{\\"new\\":1,\\"id_23\\":\\"te\\",\\"id_24\\":\\"te\\",\\"id_5\\":\\"Fe\\",\\"id_6\\":\\"te\\",\\"id_16\\":\\"No\\"}","path":"\\/submit\\/250564877148064","ifYou":["https:\\/\\/www.jotform.com\\/uploads\\/ArcherTravelGroup\\/250564877148064\\/6349930529717389691\\/test.png"]}',
+  fromTable: '',
+  appID: '',
+  pretty: 'Your Name:test test, Your Email Address:test@test.com, Is this a bug of the current site or a missing feature that you would like to see added?:Bug, Please provide a description of the bug or missing feature. For a bug, tell us a little about what you were doing when you experienced it, and how it affected your ability to proceed.  If there was an error code or warning text please copy and paste that here.  If it is a feature request, please describe the feature and how it would be beneficial to have added to the site::test, Please copy the URL of the page you were on when you experienced the issue::test, Please rate level of impact that this bug had on your experience to successfully complete a submission, or how the missing feature affects your success.:No big deal, would be nice to have, Please provide any additional information, insights, or examples pertaining to this matter that you would like us to know::test, If you have a screenshot that you would like to share please enter that here::test.png',
+  unread: '',
+  parent: '',
+  ip: '162.250.186.179'
+}
+2025-09-29T22:10:54.755Z [info] Detected URLs: [
+  'https://bugs-and-features-reporting.vercel.app/api/report',
+  'https://upload.jotform.com/upload',
+  'https://files.jotform.com/jufs/ArcherTravelGroup/250564877148064/6349930529717389691/test.png'
+]
+2025-09-29T22:10:54.755Z [info] File-like URLs (used as attachments): [
+  'https://files.jotform.com/jufs/ArcherTravelGroup/250564877148064/6349930529717389691/test.png'
+]
+2025-09-29T22:10:54.757Z [info] Parsed form data: {
+  formTitle: 'Feedback: Commisson Tracking Form',
+  pretty: [
+    { key: 'Your Name', value: 'test test' },
+    { key: 'Your Email Address', value: 'test@test.com' },
+    {
+      key: 'Is this a bug of the current site or a missing feature that you would like to see added?',
+      value: 'Bug'
+    },
+    {
+      key: 'Please provide a description of the bug or missing feature. For a bug',
+      value: ''
+    },
+    {
+      key: 'tell us a little about what you were doing when you experienced it',
+      value: ''
+    },
+    {
+      key: 'and how it affected your ability to proceed.  If there was an error code or warning text please copy and paste that here.  If it is a feature request',
+      value: ''
+    },
+    {
+      key: 'please describe the feature and how it would be beneficial to have added to the site',
+      value: ':test'
+    },
+    {
+      key: 'Please copy the URL of the page you were on when you experienced the issue',
+      value: ':test'
+    },
+    {
+      key: 'Please rate level of impact that this bug had on your experience to successfully complete a submission',
+      value: ''
+    },
+    {
+      key: 'or how the missing feature affects your success.',
+      value: 'No big deal'
+    },
+    { key: 'would be nice to have', value: '' },
+    { key: 'Please provide any additional information', value: '' },
+    { key: 'insights', value: '' },
+    {
+      key: 'or examples pertaining to this matter that you would like us to know',
+      value: ':test'
+    },
+    {
+      key: 'If you have a screenshot that you would like to share please enter that here',
+      value: ':test.png'
+    },
+    {
+      key: 'Attachment 1',
+      value: 'https://files.jotform.com/jufs/ArcherTravelGroup/250564877148064/6349930529717389691/test.png'
+    }
+  ]
+}
+2025-09-29T22:10:56.123Z [info] Jira issue created: CT-11

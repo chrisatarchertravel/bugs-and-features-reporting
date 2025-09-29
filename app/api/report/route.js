@@ -40,22 +40,39 @@ export async function POST(req) {
         raw = String(prettyField);
       }
 
-      // Clean up and remove accidental leading label
-      raw = raw.trim().replace(/^\s*pretty[:\s-]*/i, '');
+      // --- Improved normalization & parsing for Jotform "pretty" string ---
+      raw = raw
+        .trim()
+        .replace(/^\s*pretty[:\s-]*/i, '') // remove accidental leading "pretty"
+        .replace(/\\\//g, '/')            // unescape \/ -> /
+        .replace(/\\"/g, '"')             // unescape \"
+        .replace(/\\n/g, '\n');           // unescape \n
 
-      // Split into segments by comma and parse key:value
-      const segments = raw.split(/\s*,\s*/);
-      for (const seg of segments) {
-        if (!seg) continue;
-        const idx = seg.indexOf(':');
-        if (idx === -1) {
-          prettyArray.push({ key: seg.trim(), value: '' });
-        } else {
-          const key = seg.slice(0, idx).trim();
-          const value = seg.slice(idx + 1).trim();
-          prettyArray.push({ key, value });
+      function splitOnLabelBoundaries(s) {
+        // If it already has one-per-line, respect lines
+        if (/\r?\n/.test(s)) {
+          return s.split(/\r?\n/).map(t => t.trim()).filter(Boolean);
         }
+        // Otherwise, split only where a *new label* starts:
+        // pattern: ", " followed by Capitalized text that eventually has a colon.
+        const marked = s.replace(/,\s+(?=[A-Z][^:]{0,200}:)/g, '|||');
+        return marked.split('|||').map(t => t.trim()).filter(Boolean);
       }
+
+      const parts = splitOnLabelBoundaries(raw);
+
+      for (const part of parts) {
+        // Use the LAST colon so labels may contain colons safely
+        const lastColon = part.lastIndexOf(':');
+        if (lastColon === -1) {
+          if (part) prettyArray.push({ key: part.trim(), value: '' });
+          continue;
+        }
+        const key = part.slice(0, lastColon).trim();
+        const value = part.slice(lastColon + 1).trim();
+        if (key) prettyArray.push({ key, value });
+      }
+      // --- end improved parsing ---
     }
 
     // -------------------------
@@ -63,10 +80,8 @@ export async function POST(req) {
     // -------------------------
     const urlRegex = /https?:\/\/[^\s"']+/gi;
 
-    // Recursively extract URLs from objects/arrays/strings
     function extractUrlsFromObject(obj) {
       const out = [];
-
       if (obj == null) return out;
 
       if (typeof obj === 'string') {
@@ -93,21 +108,23 @@ export async function POST(req) {
 
     function extractUrlsFromStringOrJson(s) {
       if (typeof s !== 'string') return [];
-
       const trimmed = s.trim();
 
       // If it looks like JSON (object/array), try to parse and recurse.
-      if ((trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
           const parsed = JSON.parse(s);
           return extractUrlsFromObject(parsed);
-        } catch (err) {
-          // Not valid JSON — fall back to string extraction below
+        } catch {
+          // fall through to plain string extraction
         }
       }
 
-      // Unescape common JSON-escaped slashes and quotes (e.g. "https:\/\/...") so regex sees the real URL
-      const unescaped = s.replace(/\\\//g, '/').replace(/\\"/g, '"').replace(/\\n/g, '\n');
+      // Unescape common JSON-escaped slashes/quotes so regex sees real URLs
+      const unescaped = s
+        .replace(/\\\//g, '/')
+        .replace(/\\"/g, '"')
+        .replace(/\\n/g, '\n');
 
       const matches = unescaped.match(urlRegex);
       return matches ? matches.map(m => m) : [];
@@ -127,7 +144,6 @@ export async function POST(req) {
           let nu = u.replace(/\\\//g, '/'); // just in case any escaped slashes remain
 
           // Normalize JotForm uploads -> files.jotform.com/jufs
-          // e.g. https://www.jotform.com/uploads/...  -> https://files.jotform.com/jufs/...
           nu = nu.replace(
             /^https?:\/\/(?:www\.)?jotform\.com\/uploads/i,
             'https://files.jotform.com/jufs'
@@ -143,17 +159,16 @@ export async function POST(req) {
 
     const normalizedUrls = Array.from(normalizedSet);
 
-    // Filter to file-like URLs — prefer attachments (images, pdfs) or jufs paths.
+    // Prefer file-like URLs
     const fileLikeUrls = normalizedUrls.filter(u =>
       /\.(png|jpe?g|gif|bmp|pdf|zip|txt|csv|docx?|xlsx?|webp)(\?.*)?$/i.test(u) ||
       /\/jufs\//i.test(u) ||
       /\/uploads\//i.test(u)
     );
 
-    // If we found file-like URLs, prefer those. Otherwise, fall back to any https URLs found.
     const finalUrls = fileLikeUrls.length > 0 ? fileLikeUrls : normalizedUrls;
 
-    // append to prettyArray as attachments
+    // Append attachments to prettyArray
     finalUrls.forEach((u, idx) => {
       prettyArray.push({ key: `Attachment ${idx + 1}`, value: u });
     });
@@ -172,9 +187,8 @@ export async function POST(req) {
     console.log('Parsed form data:', result);
 
     // 🔹 send to Slack
-    const webhookUrl = process.env.SLACK_WEBHOOK_URL; // store your URL in an env var
+    const webhookUrl = process.env.SLACK_WEBHOOK_URL;
     if (webhookUrl) {
-      // Format a readable message for Slack
       const textLines = [
         `*${result.formTitle}*`,
         ...result.pretty.map(p => `• *${p.key}*: ${p.value}`),
@@ -197,27 +211,19 @@ export async function POST(req) {
     // 🔹 create Jira issue
     if (jiraSite && jiraEmail && jiraToken && jiraProjectKey) {
       const authHeader =
-        'Basic ' +
-        Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+        'Basic ' + Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
 
-      // Create a plain text version of the description
       const descriptionText = result.pretty
         .map(p => `${p.key}: ${p.value}`)
         .join('\n');
 
-      // Wrap it in Atlassian Document Format
       const descriptionADF = {
         type: 'doc',
         version: 1,
         content: [
           {
             type: 'paragraph',
-            content: [
-              {
-                type: 'text',
-                text: descriptionText,
-              },
-            ],
+            content: [{ type: 'text', text: descriptionText }],
           },
         ],
       };
@@ -263,10 +269,7 @@ export async function POST(req) {
         ok: false,
         error: 'Could not parse form data or send to Slack/Jira',
       }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }
