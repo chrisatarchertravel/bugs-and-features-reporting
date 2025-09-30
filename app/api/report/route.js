@@ -106,13 +106,17 @@ export async function POST(req) {
       if (typeof s !== 'string') return [];
       const trimmed = s.trim();
 
+      // If it looks like JSON (object/array), try to parse and recurse.
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
           const parsed = JSON.parse(s);
           return extractUrlsFromObject(parsed);
-        } catch {}
+        } catch {
+          // fall through to plain string extraction
+        }
       }
 
+      // Unescape common JSON-escaped slashes/quotes so regex sees real URLs
       const unescaped = s
         .replace(/\\\//g, '/')
         .replace(/\\"/g, '"')
@@ -133,15 +137,18 @@ export async function POST(req) {
       rawMatches
         .map(u => {
           if (!u) return u;
-          let nu = u.replace(/\\\//g, '/');
+          let nu = u.replace(/\\\//g, '/'); // just in case any escaped slashes remain
 
           // Normalize JotForm uploads -> files.jotform.com/jufs
+          // e.g. https://www.jotform.com/uploads/...  -> https://files.jotform.com/jufs/...
           nu = nu.replace(
             /^https?:\/\/(?:www\.)?jotform\.com\/uploads/i,
             'https://files.jotform.com/jufs'
           );
 
+          // trim trailing quotes or punctuation sometimes captured
           nu = nu.replace(/["'<>]+$/g, '');
+
           return nu;
         })
         .filter(Boolean)
@@ -149,22 +156,50 @@ export async function POST(req) {
 
     const normalizedUrls = Array.from(normalizedSet);
 
-    // Prefer file-like URLs
-    const fileLikeUrls = normalizedUrls.filter(u =>
-      /\.(png|jpe?g|gif|bmp|pdf|zip|txt|csv|docx?|xlsx?|webp)(\?.*)?$/i.test(u) ||
-      /\/jufs\//i.test(u) ||
-      /\/uploads\//i.test(u)
-    );
+    // ---- STRICT image-attachment detection ----
+    const IMAGE_EXT_RE = /\.(png|jpe?g|gif|bmp|webp|tiff?|heic)(\?.*)?$/i;
 
-    const finalUrls = fileLikeUrls.length > 0 ? fileLikeUrls : normalizedUrls;
+    function isImageAttachment(u) {
+      try {
+        const url = new URL(u);
+        const host = url.hostname.toLowerCase();
+        const path = url.pathname;
 
-    // Append attachments to prettyArray
-    finalUrls.forEach((u, idx) => {
+        // Exclude obvious non-file endpoints
+        if (/\/api\/report(?:\/|$)/i.test(path)) return false;
+        if (host.includes('upload.jotform.com') && /^\/upload\/?$/i.test(path)) return false;
+
+        // Direct file by image extension
+        if (IMAGE_EXT_RE.test(path)) return true;
+
+        // Jotform hosted file via /jufs/.../<filename> with image extension
+        if (
+          (host.endsWith('jotform.com') || host.endsWith('jotform.me') || host.endsWith('files.jotform.com')) &&
+          /\/jufs\//i.test(path) &&
+          IMAGE_EXT_RE.test(path)
+        ) {
+          return true;
+        }
+
+        return false;
+      } catch {
+        // Fallback: quick string tests
+        if (/\/api\/report\b/i.test(u)) return false;
+        if (/upload\.jotform\.com\/upload\/?$/i.test(u)) return false;
+        return /\/jufs\//i.test(u) && IMAGE_EXT_RE.test(u);
+      }
+    }
+
+    // Only keep TRUE image attachments
+    const imageAttachmentUrls = normalizedUrls.filter(isImageAttachment);
+
+    // Append attachments ONLY if we found real images
+    imageAttachmentUrls.forEach((u, idx) => {
       prettyArray.push({ key: `Attachment ${idx + 1}`, value: u });
     });
 
-    console.log('Detected URLs:', normalizedUrls);
-    console.log('File-like URLs (used as attachments):', finalUrls);
+    console.log('Detected URLs (all):', normalizedUrls);
+    console.log('Image attachments (used as attachments):', imageAttachmentUrls);
 
     // -------------------------
     // Build result and continue with Slack/Jira logic
@@ -176,7 +211,7 @@ export async function POST(req) {
 
     console.log('Parsed form data:', result);
 
-    // 🔹 send to Slack — NO italics around answers so URLs autolink correctly
+    // 🔹 send to Slack — plain answers so URLs autolink correctly
     const webhookUrl = process.env.SLACK_WEBHOOK_URL;
     if (webhookUrl) {
       const textLines = [
