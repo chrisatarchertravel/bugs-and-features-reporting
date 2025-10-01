@@ -156,10 +156,10 @@ export async function POST(req) {
 
     const normalizedUrls = Array.from(normalizedSet);
 
-    // ---- STRICT image-attachment detection ----
-    const IMAGE_EXT_RE = /\.(png|jpe?g|gif|bmp|webp|tiff?|heic)(\?.*)?$/i;
+    // ---- STRICT file-attachment detection (images + common docs like PDF) ----
+    const FILE_EXT_RE = /\.(png|jpe?g|gif|bmp|webp|tiff?|heic|pdf|docx?|xlsx?|csv|txt|zip)(\?.*)?$/i;
 
-    function isImageAttachment(u) {
+    function isFileAttachment(u) {
       try {
         const url = new URL(u);
         const host = url.hostname.toLowerCase();
@@ -169,14 +169,14 @@ export async function POST(req) {
         if (/\/api\/report(?:\/|$)/i.test(path)) return false;
         if (host.includes('upload.jotform.com') && /^\/upload\/?$/i.test(path)) return false;
 
-        // Direct file by image extension
-        if (IMAGE_EXT_RE.test(path)) return true;
+        // Direct file by allowed extension (incl. .pdf)
+        if (FILE_EXT_RE.test(path)) return true;
 
-        // Jotform hosted file via /jufs/.../<filename> with image extension
+        // Jotform hosted file via /jufs/.../<filename> with an allowed extension
         if (
           (host.endsWith('jotform.com') || host.endsWith('jotform.me') || host.endsWith('files.jotform.com')) &&
           /\/jufs\//i.test(path) &&
-          IMAGE_EXT_RE.test(path)
+          FILE_EXT_RE.test(path)
         ) {
           return true;
         }
@@ -186,20 +186,20 @@ export async function POST(req) {
         // Fallback: quick string tests
         if (/\/api\/report\b/i.test(u)) return false;
         if (/upload\.jotform\.com\/upload\/?$/i.test(u)) return false;
-        return /\/jufs\//i.test(u) && IMAGE_EXT_RE.test(u);
+        return /\/jufs\//i.test(u) && FILE_EXT_RE.test(u);
       }
     }
 
-    // Only keep TRUE image attachments
-    const imageAttachmentUrls = normalizedUrls.filter(isImageAttachment);
+    // Only keep TRUE file attachments (now includes PDFs)
+    const fileAttachmentUrls = normalizedUrls.filter(isFileAttachment);
 
-    // Append attachments ONLY if we found real images
-    imageAttachmentUrls.forEach((u, idx) => {
+    // Append attachments ONLY if we found real files
+    fileAttachmentUrls.forEach((u, idx) => {
       prettyArray.push({ key: `Attachment ${idx + 1}`, value: u });
     });
 
     console.log('Detected URLs (all):', normalizedUrls);
-    console.log('Image attachments (used as attachments):', imageAttachmentUrls);
+    console.log('File attachments (used as attachments):', fileAttachmentUrls);
 
     // -------------------------
     // Build result and continue with Slack/Jira logic
@@ -233,10 +233,29 @@ export async function POST(req) {
       console.warn('No SLACK_WEBHOOK_URL environment variable set.');
     }
 
-    // 🔹 create Jira issue (answers underlined in ADF)
+    // 🔹 create Jira issue (answers underlined; URLs clickable)
     if (jiraSite && jiraEmail && jiraToken && jiraProjectKey) {
       const authHeader =
         'Basic ' + Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+
+      // Helper: build text node for value; if URL, add link+underline marks
+      const URL_VALUE_RE = /^https?:\/\/\S+$/i;
+      function valueNode(value) {
+        if (!value) return [];
+        if (URL_VALUE_RE.test(value)) {
+          return [
+            {
+              type: 'text',
+              text: value,
+              marks: [
+                { type: 'link', attrs: { href: value } },
+                { type: 'underline' },
+              ],
+            },
+          ];
+        }
+        return [{ type: 'text', text: value, marks: [{ type: 'underline' }] }];
+      }
 
       const descriptionADF = {
         type: 'doc',
@@ -246,9 +265,7 @@ export async function POST(req) {
               type: 'paragraph',
               content: [
                 { type: 'text', text: `${p.key}: ` },
-                ...(p.value
-                  ? [{ type: 'text', text: p.value, marks: [{ type: 'underline' }] }]
-                  : []),
+                ...valueNode(p.value),
               ],
             }))
           : [{ type: 'paragraph', content: [{ type: 'text', text: '' }] }],
